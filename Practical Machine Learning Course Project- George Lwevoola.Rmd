@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "George Lwevoola"
+date: "August 20, 2016"
+output: html_document
+---
+
+The goal of your project is to predict the manner in which selected persons performed an exercise. This is represented by the "classe" variable in the training data set. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will be able to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways categorised as (A,B,C,D,E). 
+
+1. Getting and Cleaning the data
+
+```{r}
+library(caret)
+library(MASS)
+library(plyr)
+library(foreach)
+
+## Download file and Open up connections to the files in the downloaded zip file
+## These connections are closed by R after use
+
+if(!file.exists("pml-training.csv")){
+  trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  download.file(traineUrl,destfile="pml-training.csv")
+}
+if(!file.exists("pml-testing.csv")){
+  testUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  download.file(testUrl,destfile="pml-testing.csv")
+}
+
+trainRaw<-read.csv("pml-training.csv")
+testRaw<-read.csv("pml-testing.csv")
+set.seed(3833)
+# remove predictor varaibles with NZV from the training set
+# remove columns with too many NA's more than 95%
+colRemove <- nearZeroVar(trainRaw)
+train_df <- trainRaw[, -colRemove]
+colNAs<-which(colSums(is.na(train_df))/nrow(train_df) > 0.90)
+train_df<-train_df[,-c(colNAs)]
+
+# first clean datasets
+finTrain = createDataPartition(train_df$classe, p = 0.6)[[1]]
+ftrain = train_df[ finTrain,]
+ftest = train_df[-finTrain,]
+# second clean datasets
+inTrain2 = createDataPartition(ftrain$classe, p = 0.6)[[1]]
+training2 = ftrain[ inTrain2,]
+testing2 = ftrain[-inTrain2,]
+
+# Third clean datasets
+inTrain = createDataPartition(training2$classe, p = 0.6)[[1]]
+training3 = training2[ inTrain,]
+testing3 = training2[-inTrain,]
+
+# fourth clean datasets
+inTrain = createDataPartition(training3$classe, p = 0.6)[[1]]
+training = training3[ inTrain,]
+testing = training3[-inTrain,]
+
+
+# Remove correlated columns on training dataset; more than 90% correlation
+# Remove  columns 1 to 5 on training dataset; not useful for predicting
+
+cols <-which(names(training) == "classe")
+setcor<-cor(training[,-cols][sapply(training[,-cols],is.numeric)])
+getCor <- findCorrelation(abs(setcor),0.90)
+training <- training[,-getCor]
+training <- training[,-c(1:5)]
+```
+First the cleaning process involved the removal of columns with a large number of NAs as well as columns that are higly correlated. Finally columns not necessary for prediction were also removed from the training dataset.
+
+I have taken the training data set through several partitioning sessions (4) to have a manageable data set size to explore various machine learning models. Large datasets would create unecessary computing bottlenecks lasting several hours.
+```{r}
+# Do Cross validation
+# set CV parameters
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+```
+I have randomly selected three of the most commonly used machine learning algorithms to explore their prediction accuracy before settling on the best one
+
+```{r}
+# Check  efficacy of 3 selected machine algorithm
+metric<-"Accuracy"
+
+# Linear Discriminant Analysis:find a linear combination of features that characterizes or separates two or more classes of objects or events.
+set.seed(3344)
+lda.fit <- train(classe~., data=training, method="lda", metric=metric, trControl=control)
+lda.predict<-predict(lda.fit,testing)
+lda.accuracy<-confusionMatrix(lda.predict,testing$classe)
+lda.accuracy
+# Random Forest
+set.seed(3344)
+rf.fit <- train(classe~., data=training, method="rf", metric=metric,trControl=control)
+rf.predict<-predict(rf.fit,testing)
+rf.accuracy<-confusionMatrix(rf.predict,testing$classe)
+rf.accuracy
+# Rpart 
+set.seed(3344)
+rpart.fit <- train(classe~., data=training, method="rpart", metric=metric, trControl=control)
+rpart.predict<-predict(rpart.fit,testing)
+rpart.accuracy<-confusionMatrix(rpart.predict,testing$classe)
+rpart.accuracy
+# compare all three models
+compareAll <- resamples(list(lda=lda.fit,rf=rf.fit,rpart=rpart.fit))
+
+# Table comparison
+summary(compareAll)
+
+# boxplot comparison
+bwplot(compareAll)
+# rf model seems to register highest accuracy in this case
+# fit prediction based on rf model to the test dataset
+```
+Conclusion
+
+Finally, I selected the Random forest model as the most suitable since it had the highest accuracy with an out of sample error of less than 0.05%.
+
+In the Random forest prediction model, the most important variables are  given as:
+```{r}
+varImp(rf.fit)
+```
+Below is the result of the prediction on test dataset using the random forest model.
+```{r}
+testing<-testRaw
+rfpredict<-predict(rf.fit,testing)
+rfpredict
+```
+
